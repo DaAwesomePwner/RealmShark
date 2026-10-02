@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.function.IntConsumer;
+import java.util.function.Consumer;
 import javax.swing.*;
 import tomato.gui.kit.*;
 import tomato.gui.modern.ContentStyle;
@@ -18,6 +19,8 @@ public final class DungeonPanel extends JPanel implements AutoCloseable {
     private final Executor worker;
     private final JTextArea status = ContentStyle.wrappingText("");
     private IntConsumer openItem = id -> {};
+    private Consumer<String> openCollection = dungeon -> {};
+    private final KitButton collection = KitButton.ghost("");
     private Cancellation cancel = new Cancellation();
     private long generation;
     private boolean closed;
@@ -37,10 +40,14 @@ public final class DungeonPanel extends JPanel implements AutoCloseable {
         setOpaque(false);
         status.setName("loot-dungeon-status");
         status.setFocusable(false);
+        collection.setName("loot-dungeon-collection");
+        collection.setVisible(false);
+        collection.addActionListener(e -> openCollection.accept(dungeon));
         setVisible(false);
     }
 
     public void onOpenItem(IntConsumer action) { openItem = Objects.requireNonNull(action); }
+    public void onOpenCollection(Consumer<String> action) { openCollection = Objects.requireNonNull(action); }
     public String dungeon() { return dungeon; }
     public DungeonStats model() { return model; }
     JTextArea status() { return status; }
@@ -52,6 +59,7 @@ public final class DungeonPanel extends JPanel implements AutoCloseable {
         String next = DungeonStats.of(List.of(), canonical).dungeon();
         boolean keep = model != null && Objects.equals(dungeon, next);
         dungeon = next;
+        collection.setVisible(false);
         long ticket = ++generation;
         cancel.cancel();
         Cancellation token = cancel = new Cancellation();
@@ -65,8 +73,9 @@ public final class DungeonPanel extends JPanel implements AutoCloseable {
             add(title, BorderLayout.NORTH);
             status.setText(LOADING);
             add(status, BorderLayout.CENTER);
-            revalidate(); repaint();
         }
+        if (collection.getParent() != this) add(collection, BorderLayout.SOUTH);
+        revalidate(); repaint();
         String wanted = dungeon;
         try {
             worker.execute(() -> {
@@ -87,11 +96,14 @@ public final class DungeonPanel extends JPanel implements AutoCloseable {
     private void apply(long ticket, DungeonStats read, String failure) {
         if (closed || ticket != generation) return;
         if (failure != null) {
+            collection.setVisible(false);
             model = null;
             clearBody();
             status.setText("This dungeon's loot could not be read: " + failure);
             add(status, BorderLayout.CENTER);
         } else {
+            collection.setText("All items from " + read.dungeon());
+            collection.setVisible(read.bags() > 0);
             if (read.equals(model)) return; // keep focused Most-dropped buttons when no displayed facts changed
             model = read;
             clearBody();

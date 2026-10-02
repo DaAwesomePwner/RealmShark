@@ -81,4 +81,28 @@ public class CollectionLevelTest {
         assertEquals("Your collection could not be read: synthetic read failure", edt(() -> failed.status().getText()));
         failed.close();
     }
+
+    @Test public void dungeonFilterChipAndEmptyStateFollowTheFilteredBags() throws Exception {
+        CollectionLevel level = level(cancel -> List.of(AtlasModelTest.bag("Lost Halls", "a", 100, false, ut(1, null)),
+            AtlasModelTest.bag("Snake Pit", "b", 200, false, potion(4))));
+        List<String> cleared = new ArrayList<>();
+        edt(() -> { level.onFilterCleared(() -> cleared.add("cleared")); level.reload(); return null; });
+        edt(() -> {
+            level.filterDungeon("Lost Halls");
+            assertEquals("Lost Halls", level.dungeonFilter());
+            assertEquals(1, level.model().kinds());
+            assertEquals(1, level.model().shelves().get(0).entries().get(0).itemId());
+            assertEquals("1 item · 1 drop", named(level, "loot-collection-summary", JLabel.class).getText());
+            JComponent chip = named(level, "loot-collection-dungeon", JComponent.class);
+            named(chip, "remove-filter", AbstractButton.class).doClick();
+            assertNull(level.dungeonFilter());
+            assertEquals(2, level.model().kinds());
+            assertEquals(List.of("cleared"), cleared);
+            assertTrue(all(level, "loot-collection-dungeon", JComponent.class).isEmpty());
+            level.filterDungeon("Sprite World");
+            assertEquals("No saved items from Sprite World.", level.status().getText());
+            level.close();
+            return null;
+        });
+    }
 }

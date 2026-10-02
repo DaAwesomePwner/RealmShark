@@ -15,6 +15,44 @@ import static tomato.gui.loot.explore.DungeonStatsTest.*;
 import static tomato.gui.loot.explore.RunsLevelTest.*;
 
 public class DungeonPanelTest {
+    @Test public void allItemsReportsTheCanonicalDungeonAndIsHiddenWhenUnavailable() throws Exception {
+        DungeonPanel panel = edt(() -> new DungeonPanel(cancel -> List.of(drop(100, "s", "v", true, ut(1, 4))), Runnable::run));
+        List<String> opened = new ArrayList<>();
+        edt(() -> { panel.onOpenCollection(opened::add); panel.showDungeon(DUNGEON); return null; });
+        edt(() -> {
+            AbstractButton link = named(panel, "loot-dungeon-collection", AbstractButton.class);
+            assertTrue(link.isVisible());
+            assertEquals("All items from " + DUNGEON, link.getText());
+            link.doClick();
+            assertEquals(List.of(DUNGEON), opened);
+            panel.showDungeon(DUNGEON);
+            assertSame(link, named(panel, "loot-dungeon-collection", AbstractButton.class));
+            assertFalse("Hidden during a refresh", link.isVisible());
+            return null;
+        });
+        edt(() -> {
+            assertTrue(named(panel, "loot-dungeon-collection", AbstractButton.class).isVisible());
+            panel.showDungeon("Snake Pit");
+            return null;
+        });
+        edt(() -> {
+            assertFalse("No bags in Snake Pit", named(panel, "loot-dungeon-collection", AbstractButton.class).isVisible());
+            AbstractButton link = named(panel, "loot-dungeon-collection", AbstractButton.class);
+            panel.showDungeon(LootFacts.UNKNOWN_AREA);
+            assertFalse(link.isVisible());
+            assertFalse(panel.isVisible());
+            panel.showDungeon(DUNGEON);
+            assertSame("Showing a known dungeon reattaches the link", link, named(panel, "loot-dungeon-collection", AbstractButton.class));
+            assertFalse(link.isVisible());
+            return null;
+        });
+        edt(() -> {
+            assertTrue(named(panel, "loot-dungeon-collection", AbstractButton.class).isVisible());
+            panel.close();
+            return null;
+        });
+    }
+
     @Test public void sameDungeonRefreshKeepsContentThenAppliesChangesAndEqualResultsKeepTheButtons() throws Exception {
         List<Runnable> tasks = new ArrayList<>();
         AtomicReference<List<LootFacts.Bag>> saved = new AtomicReference<>(List.of(drop(100, "s", "v", true, ut(1, 4))));
@@ -76,12 +114,16 @@ public class DungeonPanelTest {
                 assertTrue(tasks.isEmpty());
                 panel.showDungeon(DUNGEON);
                 assertEquals(DungeonPanel.LOADING, panel.status().getText());
+                AbstractButton link = named(panel, "loot-dungeon-collection", AbstractButton.class);
+                assertSame(link, ((BorderLayout) panel.getLayout()).getLayoutComponent(BorderLayout.SOUTH));
+                assertFalse("The attached link is hidden before the read applies", link.isVisible());
                 return null;
             });
             tasks.remove(0).run();
             edt(() -> {
                 assertEquals(DungeonPanel.EMPTY, panel.status().getText());
                 assertEquals(0, panel.model().bags());
+                assertFalse(named(panel, "loot-dungeon-collection", AbstractButton.class).isVisible());
                 fail.set(new IOException("synthetic failure"));
                 panel.showDungeon(DUNGEON);
                 return null;
@@ -90,6 +132,7 @@ public class DungeonPanelTest {
             edt(() -> {
                 assertEquals("This dungeon's loot could not be read: synthetic failure", panel.status().getText());
                 assertNull(panel.model());
+                assertFalse(named(panel, "loot-dungeon-collection", AbstractButton.class).isVisible());
                 panel.showDungeon(LootFacts.UNRECOGNIZED);
                 assertFalse(panel.isVisible());
                 assertEquals(0, panel.getComponentCount());
