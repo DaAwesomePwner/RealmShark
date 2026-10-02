@@ -27,7 +27,7 @@ The saved session files stay the source of truth. Everything added on top of the
 
 Each item below is one PR to `main`.
 
-- **Who does what:** Codex implements in an orchestra worktree. Claude verifies the work, runs the focused tests and obtains a cross-family review, then the PR is opened. The user smoke-tests on their own machine. CI is manual only.
+- **Who does what:** Codex implements in an orchestra worktree. Claude verifies the work, runs the focused tests and obtains a cross-family review, then the PR is opened. The user smoke-tests on their own machine. CI runs automatically on PRs (manual-only from 2026-09-26 to 2026-10-01) and is not a merge gate.
 - **On-disk format changes:** "read the new format" merges before "write the new format". Nothing rewrites existing history until a reader for the new form has shipped.
 
 | PR | Scope | Depends on | Status |
