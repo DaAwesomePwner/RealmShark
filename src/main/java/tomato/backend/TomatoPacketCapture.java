@@ -121,6 +121,9 @@ public class TomatoPacketCapture implements Controller {
             data.updateToken(p.accessToken);
         } else if (packet instanceof QuestFetchResponsePacket) {
             data.quests((QuestFetchResponsePacket) packet);
+        } else if (packet instanceof QuestObjectIdPacket) {
+            data.questTarget((QuestObjectIdPacket) packet);
+            data.logPacket(packet);
         } else if (packet instanceof TradeRequestedPacket) {
             if (Sound.trade.isEnabled()) {
                 Sound.trade.play();

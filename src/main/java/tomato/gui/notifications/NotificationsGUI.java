@@ -4,6 +4,7 @@ import tomato.gui.TomatoGUI;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.kit.CustomizableTabs;
 import tomato.realmshark.RealmEventAlerts;
+import tomato.realmshark.WorldBossAlerts;
 import tomato.realmshark.Sound;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.maingui.DraftSaveStatus;
@@ -48,7 +49,7 @@ public final class NotificationsGUI extends JPanel {
     private final List<AlertRow> rows = new ArrayList<>();
     private final Map<String, JCheckBox> dungeonChoices = new TreeMap<>();
     private final JPanel realmList = stack();
-    private final JLabel realmStatus = new JLabel();
+    private final JLabel realmStatus = new JLabel(), bossStatus = new JLabel();
     private final Runnable update = () -> SwingUtilities.invokeLater(this::refresh);
     private final TimerHolder timer = new TimerHolder();
     private boolean syncing;
@@ -68,6 +69,7 @@ public final class NotificationsGUI extends JPanel {
         JLabel masterLabel = new JLabel("Master volume"); masterLabel.setLabelFor(master);
         masterValue.setFont(ContentStyle.metadata(ContentStyle.body()));
         dungeonCount.setFont(ContentStyle.metadata(ContentStyle.body())); realmStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
+        bossStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
         volume.add(masterLabel, BorderLayout.WEST); volume.add(master); volume.add(masterValue, BorderLayout.EAST);
         master.setName("sound-master"); master.getAccessibleContext().setAccessibleName("Master volume");
         mute.setName("sound-mute"); masterControls.add(volume); masterControls.add(mute); top.add(masterControls);
@@ -81,6 +83,7 @@ public final class NotificationsGUI extends JPanel {
             for (Sound sound : Sound.ALERTS) if (sound.group.equals(soundGroup)) content.add(row(sound));
             if (soundGroup.equals(SOUND_GROUP_KEY_POPS)) content.add(dungeons());
             if (soundGroup.equals("Realm events")) {
+                content.add(worldBosses());
                 content.add(note("Alerts match public Oryx/system announcements while in a Realm. Presets match event names; edit a phrase to narrow it to the spawn announcement. Common defeat messages are skipped; repeat alerts pause for 30 seconds."));
                 JButton add = new JButton("Add realm event..."); add.setName("realm-add"); add.addActionListener(e -> addRealmRule());
                 content.add(left(add)); content.add(realmList); content.add(left(realmStatus)); rebuildRealmRules();
@@ -193,7 +196,9 @@ public final class NotificationsGUI extends JPanel {
         dungeonSelectedOnly.setSelected((Boolean)values[2]); dungeonSearch.setText((String)values[1]); filterDungeons();
     }
     private final class TimerHolder {
-        final javax.swing.Timer value = new javax.swing.Timer(1000, e -> { if (isShowing()) realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); });
+        final javax.swing.Timer value = new javax.swing.Timer(1000, e -> {
+            if (isShowing()) { realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); bossStatus.setText(WorldBossAlerts.INSTANCE.getLastMatchLabel()); }
+        });
         void start() { value.start(); } void stop() { value.stop(); }
     }
     /**
@@ -217,7 +222,7 @@ public final class NotificationsGUI extends JPanel {
         if (!master.getValueIsAdjusting()) master.setValue(Sound.getMasterVolume());
         masterValue.setText(master.getValue() + "%"); mute.setSelected(Sound.isMuted());
         status.setText(Sound.getLastStatus() + "\n" + Sound.getPreferenceStatus()); for (AlertRow row : rows) row.refresh();
-        realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); syncing = false;
+        realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); bossStatus.setText(WorldBossAlerts.INSTANCE.getLastMatchLabel()); syncing = false;
     }
     private final class AlertRow extends JPanel {
         final Sound sound;
@@ -340,7 +345,7 @@ public final class NotificationsGUI extends JPanel {
         }));
     }
     private void rebuildRealmRules() {
-        rows.removeIf(row -> row.sound.group.equals("Realm events")); realmList.removeAll();
+        rows.removeIf(row -> row.sound.id.startsWith("realm.")); realmList.removeAll();
         for (RealmEventAlerts.Rule rule : RealmEventAlerts.INSTANCE.getRules()) {
             JPanel card = new JPanel(new BorderLayout(0, 4)); card.add(row(rule.sound), BorderLayout.NORTH);
             JTextField phrase = new JTextField(rule.getPhrase(), 18); phrase.setName("realm-phrase-" + rule.id); phrase.setToolTipText("Literal case-insensitive phrase in a public announcement");
@@ -367,6 +372,26 @@ public final class NotificationsGUI extends JPanel {
         }
         if (realmList.getComponentCount() == 0) realmList.add(note("No realm event rules. Add an event and the phrase used in its announcement."));
         ContentStyle.refreshFonts(realmList); realmList.revalidate(); realmList.repaint(); refresh();
+    }
+    /** The world boss list under its sound row: one asset name per line, applied by Save like the other rule drafts. */
+    private JPanel worldBosses() {
+        JPanel panel = stack();
+        panel.add(note("Plays when your quest arrow moves to a listed world boss in a Realm, usually as it spawns, or when a listed boss first comes into view. Each boss alerts once per Realm visit. Recent decisions (Include no match) shows quest targets that are not on the list, with the exact name to add."));
+        JTextArea names = new JTextArea(String.join("\n", WorldBossAlerts.INSTANCE.getNames()), 5, 24);
+        names.setName("worldboss-names"); names.getAccessibleContext().setAccessibleName("World boss names, one per line");
+        JLabel label = new JLabel("World bosses (one name per line)"); label.setLabelFor(names);
+        JScrollPane scroll = new JScrollPane(names); scroll.setMinimumSize(new Dimension(0, 0));
+        JButton save = new JButton("Save names"), cancel = new JButton("Cancel draft"), defaults = new JButton("Default list");
+        save.setName("worldboss-save"); DraftSaveStatus saving = new DraftSaveStatus(save, "worldboss-save-status");
+        names.getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
+        save.addActionListener(e -> saving.submit(() -> {
+            WorldBossAlerts.INSTANCE.setNames(Arrays.asList(names.getText().split("\\R"))); return PropertiesManager.flush();
+        }));
+        cancel.addActionListener(e -> names.setText(String.join("\n", WorldBossAlerts.INSTANCE.getNames())));
+        defaults.addActionListener(e -> names.setText(String.join("\n", WorldBossAlerts.DEFAULT_NAMES)));
+        JPanel actions = ContentStyle.controls(); actions.add(save); actions.add(cancel); actions.add(defaults);
+        panel.add(label); panel.add(scroll); panel.add(actions); panel.add(saving.status); panel.add(left(bossStatus));
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0)); return panel;
     }
     private void addRealmRule() {
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Add realm event", Dialog.ModalityType.APPLICATION_MODAL);

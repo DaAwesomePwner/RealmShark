@@ -42,8 +42,9 @@ public class Sound {
     public static final Sound eggbag = new Sound("eggbag", "Egg basket", "Bags", "eggBagSound", false);
     public static final Sound bluebag = new Sound("bluebag", "Blue bag", "Bags", "blueBagSound", false);
     public static final Sound custom = new Sound("custom", "Item, entity & enchant matches", "Other alerts", "sound.custom.enabled", true);
+    public static final Sound worldBoss = new Sound("worldboss", "World boss spawns", "Realm events", "sound.worldboss.enabled", false, "keypop");
     public static final List<Sound> ALERTS = Collections.unmodifiableList(Arrays.asList(
-            pm, party, guild, trade, keypop, whitebag, orangebag, redbag, goldbag, eggbag, bluebag, keywords, custom));
+            pm, party, guild, trade, keypop, whitebag, orangebag, redbag, goldbag, eggbag, bluebag, keywords, custom, worldBoss));
     public static final String[] BUILT_INS = {"pm", "party", "guild", "trade", "keypop", "whitebag", "orangebag", "redbag", "goldbag", "eggbag", "bluebag", "custom"};
 
     public final String id, label, group;
