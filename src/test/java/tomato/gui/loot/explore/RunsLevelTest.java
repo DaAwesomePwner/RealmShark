@@ -86,6 +86,7 @@ public class RunsLevelTest {
         final Map<VisitRef, RunHauls.RunHaul> runs = new HashMap<>();
         final List<VisitRef> reads = new CopyOnWriteArrayList<>();
         volatile List<RunHauls.UnlinkedSession> unlinked = List.of();
+        volatile int unlinkedReads;
         volatile IOException fail;
         @Override public RunHauls.RunHaul run(VisitRef ref, Cancellation cancel) throws IOException {
             reads.add(ref);
@@ -94,6 +95,7 @@ public class RunsLevelTest {
             return run != null ? run : new RunHauls.RunHaul(ref, HaulModel.of(null, List.of()), null, "Linked visit unavailable");
         }
         @Override public List<RunHauls.UnlinkedSession> unlinked(Cancellation cancel) throws IOException {
+            unlinkedReads++;
             if (fail != null) throw fail;
             return unlinked;
         }
@@ -319,6 +321,92 @@ public class RunsLevelTest {
         edt(() -> { level.openUnlinked(); return null; });
         edt(() -> null);
         assertEquals(RunsLevel.NO_UNLINKED, edt(() -> level.status().getText()));
+    }
+
+    @Test public void clearingARunCancelsTheOldHaulAndTheNextPageOpensItsNewestRun() throws Exception {
+        FakeLoader loader = new FakeLoader();
+        loader.runs.put(RunFixtures.A1, haul(RunFixtures.A1, "Old"));
+        loader.runs.put(RunFixtures.A2, haul(RunFixtures.A2, "New"));
+        List<Runnable> tasks = new ArrayList<>();
+        RunsLevel level = level(edt(() -> RunFeedView.picker(() -> null)), loader, tasks::add);
+        edt(() -> { level.openRun(RunFixtures.A1); level.clearRun(); return null; });
+        tasks.remove(0).run();
+        edt(() -> {
+            assertNull(level.selectedRun());
+            assertNull(level.shownRun());
+            assertFalse(level.pendingSelect());
+            assertEquals(RunsLevel.CHOOSE, level.status().getText());
+            RunCardModel newest = new RunCardModel(RunFixtures.A2, "Snake Pit", "Snake Pit", 0, RunOutcome.COMPLETED, 1L, null, null, null,
+                "No combat recording", List.of(), 0, "", null, null, null);
+            level.loaded(List.of(newest));
+            assertEquals(RunFixtures.A2, level.selectedRun());
+            return null;
+        });
+        tasks.remove(0).run();
+        edt(() -> { assertEquals(RunFixtures.A2, level.shownRun()); return null; });
+    }
+
+    @Test public void aLootOnlyDungeonStillOffersItsCollectionWithoutARun() throws Exception {
+        DungeonPanel panel = edt(() -> new DungeonPanel(cancel -> List.of(
+            AtlasModelTest.bag("Sprite World", null, 100, true, CollectionModelTest.ut(1, null))), Runnable::run));
+        RunsLevel level = edt(() -> new RunsLevel(RunFeedView.picker(() -> null), new FakeLoader(), Runnable::run, panel));
+        levels.add(level);
+        List<String> opened = new ArrayList<>();
+        edt(() -> {
+            panel.onOpenCollection(opened::add);
+            level.feed().showDungeon("Sprite World");
+            level.loaded(List.of());
+            assertNull(level.selectedRun());
+            assertEquals("No saved runs in this dungeon.", level.status().getText());
+            assertTrue(SwingUtilities.isDescendingFrom(panel, level.detailShown()));
+            return null;
+        });
+        edt(() -> {
+            AbstractButton link = named(level, "loot-dungeon-collection", AbstractButton.class);
+            assertTrue(link.isVisible());
+            link.doClick();
+            assertEquals(List.of("Sprite World"), opened);
+            return null;
+        });
+    }
+
+    @Test public void anEmptyDungeonPageWithSearchOrOutcomesSaysNoRunsMatchAndKeepsTheCollectionLink() throws Exception {
+        DungeonPanel panel = edt(() -> new DungeonPanel(cancel -> List.of(
+            AtlasModelTest.bag("Lost Halls", null, 100, true, CollectionModelTest.ut(1, null))), Runnable::run));
+        RunsLevel level = edt(() -> new RunsLevel(RunFeedView.picker(() -> null), new FakeLoader(), Runnable::run, panel));
+        levels.add(level);
+        List<String> opened = new ArrayList<>();
+        edt(() -> {
+            panel.onOpenCollection(opened::add);
+            level.feed().showDungeon("Lost Halls");
+            JTextField search = named(level.feed(), "run-feed-search", JTextField.class);
+            search.setText("no such run");
+            search.postActionEvent();
+            assertEquals("no such run", level.feed().query().text());
+            assertTrue(level.feed().query().outcomes().isEmpty());
+            level.loaded(List.of());
+            return null;
+        });
+        edt(() -> {
+            assertEquals("No runs match. Change the search or clear the filters to see other saved runs.", level.status().getText());
+            AbstractButton link = named(level, "loot-dungeon-collection", AbstractButton.class);
+            assertTrue(link.isVisible());
+            link.doClick();
+            level.feed().showDungeon("Lost Halls");
+            named(level.feed(), "run-feed-outcome-completed", JCheckBox.class).doClick();
+            assertEquals("", level.feed().query().text());
+            assertEquals(Set.of(RunOutcome.COMPLETED), level.feed().query().outcomes());
+            level.loaded(List.of());
+            return null;
+        });
+        edt(() -> {
+            assertEquals("No runs match. Change the search or clear the filters to see other saved runs.", level.status().getText());
+            AbstractButton link = named(level, "loot-dungeon-collection", AbstractButton.class);
+            assertTrue(link.isVisible());
+            link.doClick();
+            assertEquals(List.of("Lost Halls", "Lost Halls"), opened);
+            return null;
+        });
     }
 
     // ---- helpers ----

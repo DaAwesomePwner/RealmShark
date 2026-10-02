@@ -141,6 +141,19 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         shownListener.run();
     }
 
+    /** Forgets the current haul without reading; the next feed page opens its newest run. */
+    public void clearRun() {
+        generation++;
+        cancel.cancel();
+        selected = shown = null;
+        pendingSelect = loading = showingUnlinked = false;
+        feed.clearSelection();
+        dungeon.showDungeon(null);
+        haul.setSide(null);
+        status.setText(CHOOSE);
+        showDetail(status);
+    }
+
     /** Shows the loot saved outside any run, by session; the run cards lose their selection. */
     public void openUnlinked() {
         if (closed) return;
@@ -172,9 +185,24 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
 
     /** The feed applied new runs: opens the newest when nothing is chosen, and reads the chosen run again while it is in progress. */
     void loaded(List<RunCardModel> cards) {
-        if (closed || showingUnlinked) return;
+        if (closed) return;
+        if (!showingUnlinked && feed.query().map() != null && selected != null
+            && cards.stream().noneMatch(card -> card.ref().equals(selected))) clearRun();
+        shownListener.run();
+        if (showingUnlinked) return;
         if (selected == null) {
             if (!cards.isEmpty()) openRun(cards.get(0).ref());
+            else if (feed.query().map() != null) {
+                // Loot can know a dungeon with no saved visit; its collection must still be reachable.
+                status.setText(feed.query().text().isBlank() && feed.query().outcomes().isEmpty()
+                    ? "No saved runs in this dungeon." : "No runs match. Change the search or clear the filters to see other saved runs.");
+                dungeon.showDungeon(feed.query().map());
+                showDetail(KitLayouts.stack(Tokens.S, status, dungeon));
+            } else {
+                dungeon.showDungeon(null);
+                status.setText(CHOOSE);
+                showDetail(status);
+            }
             return;
         }
         // Select a routed run once its card loads, or again after a search or filter rebuilt the list; an already selected card is

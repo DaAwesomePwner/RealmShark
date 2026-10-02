@@ -37,6 +37,9 @@ public final class CollectionLevel extends JPanel implements AutoCloseable {
         @Override public Dimension getMinimumSize() { return getPreferredSize(); }   // the page scrolls the shelves, never squeezes them
     };
     private final Set<CollectionModel.Kind> expanded = EnumSet.noneOf(CollectionModel.Kind.class);
+    private final JPanel filter = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
+    private String dungeon;
+    private Runnable filterCleared = () -> {};
     private List<LootFacts.Bag> bags;
     private CollectionModel model;
     private IntConsumer openItem = id -> { };
@@ -71,7 +74,9 @@ public final class CollectionLevel extends JPanel implements AutoCloseable {
         shelves.setName("loot-collection-shelves");
         shelves.setOpaque(false);
         shelves.setLayout(new BoxLayout(shelves, BoxLayout.Y_AXIS));
-        JPanel controls = new WrapRow(search, summary);
+        filter.setOpaque(false);
+        filter.setVisible(false);
+        JPanel controls = new WrapRow(search, filter, summary);
         JScrollPane page = ContentStyle.page(KitLayouts.stack(Tokens.S, controls, status), shelves, null);
         page.setName("loot-collection-scroll");
         page.getVerticalScrollBar().setUnitIncrement(32);
@@ -85,6 +90,24 @@ public final class CollectionLevel extends JPanel implements AutoCloseable {
     public CollectionModel model() { return model; }
     JTextField search() { return search; }
     JTextArea status() { return status; }
+
+    /** Restricts the cabinet to this canonical dungeon; null shows every saved bag. */
+    public void filterDungeon(String canonical) {
+        dungeon = canonical;
+        filter.removeAll();
+        if (dungeon != null) {
+            JComponent chip = Chip.removable("Dungeon: " + dungeon, () -> { filterDungeon(null); filterCleared.run(); });
+            chip.setName("loot-collection-dungeon");
+            filter.add(chip);
+        }
+        filter.setVisible(dungeon != null);
+        filter.revalidate();
+        filter.repaint();
+        render();
+    }
+
+    public String dungeonFilter() { return dungeon; }
+    public void onFilterCleared(Runnable action) { filterCleared = Objects.requireNonNull(action); }
 
     /** Reads every saved bag again, off the EDT; the newest read's bags replace the shown ones. EDT. */
     public void reload() {
@@ -121,7 +144,8 @@ public final class CollectionLevel extends JPanel implements AutoCloseable {
     /** EDT: the shelves for the read bags and the search. */
     private void render() {
         if (bags == null) return;
-        model = CollectionModel.of(bags, search.getText(), names);
+        List<LootFacts.Bag> matching = dungeon == null ? bags : bags.stream().filter(bag -> dungeon.equals(bag.dungeon())).toList();
+        model = CollectionModel.of(matching, search.getText(), names);
         shelves.removeAll();
         for (CollectionModel.Shelf shelf : model.shelves()) {
             String id = shelf.kind().name().toLowerCase(Locale.ROOT);
@@ -144,7 +168,8 @@ public final class CollectionLevel extends JPanel implements AutoCloseable {
         }
         summary.setText(model.kinds() + (model.kinds() == 1 ? " item · " : " items · ") + model.drops() + (model.drops() == 1 ? " drop" : " drops"));
         boolean none = model.shelves().isEmpty();
-        status.setText(none ? (search.getText().isBlank() ? EMPTY : NO_MATCH) : " ");
+        String empty = dungeon == null ? EMPTY : "No saved items from " + dungeon + ".";
+        status.setText(none ? (search.getText().isBlank() ? empty : NO_MATCH) : " ");
         status.setVisible(none);
         shelves.revalidate();
         shelves.repaint();

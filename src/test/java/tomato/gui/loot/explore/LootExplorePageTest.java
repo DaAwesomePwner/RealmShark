@@ -11,6 +11,8 @@ import tomato.gui.route.RouteTarget;
 import tomato.gui.runs.RunFeedView;
 import tomato.gui.runs.RunFixtures;
 import tomato.gui.stats.LootQuery;
+import tomato.gui.loot.LootFocus;
+import tomato.gui.loot.LootTab;
 import tomato.history.SessionStore;
 import tomato.history.archive.ArchiveQuery;
 import static org.junit.Assert.*;
@@ -47,6 +49,7 @@ public class LootExplorePageTest {
         LootExplorePage page = edt(() -> new LootExplorePage(table, new ExplorePictures(
                 new RunsLevel(RunFeedView.picker(() -> null), new RunsLevelTest.FakeLoader(), Runnable::run),
                 new CollectionLevel(catalog, Runnable::run, id -> "Synthetic item " + id),
+                new DungeonsLevel(cancel -> List.of(AtlasModelTest.card("Lost Halls", 1, 100)), catalog, Runnable::run),
                 new ItemLevel(catalog, Runnable::run, java.time.ZoneId.of("UTC")), id -> "Synthetic item " + id, key -> null, (key, value) -> { }),
             prefs::get, (key, value) -> { writes.add(key + "=" + value); prefs.put(key, value); }));
         pages.add(page);
@@ -149,5 +152,73 @@ public class LootExplorePageTest {
         LootExplorePage page = page(table);
         edt(() -> { page.close(); page.close(); return null; });
         assertEquals(1, table.closes);
+    }
+
+    @Test public void focusTargetRejectsOtherPayloadsAndRestoresPicturesAcrossBackAndForward() throws Exception {
+        LootExplorePage page = page(new Table());
+        edt(() -> {
+            RouteTarget focus = page.focusTarget(), items = page.itemTarget();
+            assertFalse(focus.accepts(Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.EXPLORE))));
+            assertFalse(focus.accepts(Route.to(Destination.LOOT).withPayload(new LootExplorePage.ExploreItem(1))));
+            assertFalse(focus.accepts(Route.to(Destination.LOOT)));
+            assertFalse(focus.accepts(Route.to(Destination.RUN_RECAP).withPayload(new ExplorePictures.Focus(ExplorePictures.Level.RUNS, null))));
+            assertFalse(items.accepts(Route.to(Destination.LOOT).withPayload(new ExplorePictures.Focus(ExplorePictures.Level.DUNGEONS, null))));
+
+            page.onNavigate(target -> focus.open(Route.to(Destination.LOOT).withPayload(target)));
+            page.pictures().openRun(RunFixtures.A2);
+            List<Object> history = new ArrayList<>();
+            List<ExplorePictures.State> expected = new ArrayList<>();
+            history.add(focus.captureState()); expected.add(page.pictures().state());
+            named(page, "loot-explore-entry-1", AbstractButton.class).doClick();
+            history.add(focus.captureState()); expected.add(page.pictures().state());
+            Route dungeon = Route.to(Destination.LOOT).withPayload(new ExplorePictures.Focus(ExplorePictures.Level.RUNS, "Lost Halls"));
+            assertTrue(focus.accepts(dungeon));
+            focus.open(dungeon);
+            page.pictures().runs().openRun(RunFixtures.A1); // the strip's pick is not another route
+            history.add(focus.captureState()); expected.add(page.pictures().state());
+            Route collection = Route.to(Destination.LOOT).withPayload(new ExplorePictures.Focus(ExplorePictures.Level.COLLECTION, "Lost Halls"));
+            focus.open(collection);
+            history.add(focus.captureState()); expected.add(page.pictures().state());
+            Route item = Route.to(Destination.LOOT).withPayload(new LootExplorePage.ExploreItem(1));
+            items.open(item);
+            history.add(items.captureState()); expected.add(page.pictures().state());
+            assertEquals(List.of(ExplorePictures.Level.RUNS, ExplorePictures.Level.DUNGEONS, ExplorePictures.Level.RUNS,
+                ExplorePictures.Level.COLLECTION, ExplorePictures.Level.ITEM), expected.stream().map(ExplorePictures.State::level).toList());
+
+            for (int i = history.size() - 1; i >= 0; i--) {
+                focus.restoreState(history.get(i));
+                assertEquals("Back step " + i, expected.get(i), page.pictures().state());
+                assertFalse(page.tableShown());
+                assertFilter(page.pictures());
+            }
+            for (int i = 0; i < history.size(); i++) {
+                items.restoreState(history.get(i));
+                assertEquals("Forward step " + i, expected.get(i), page.pictures().state());
+                assertFilter(page.pictures());
+            }
+            focus.open(dungeon);
+            assertEquals("Lost Halls", page.pictures().runs().feed().query().map());
+            focus.open(collection);
+            assertEquals("Lost Halls", page.pictures().collection().dungeonFilter());
+            items.open(item);
+            assertEquals(ExplorePictures.Level.ITEM, page.pictures().level());
+            assertEquals("Lost Halls", page.pictures().dungeon());
+
+            page.showTable();
+            Object table = focus.captureState();
+            focus.open(dungeon);
+            assertFalse(page.tableShown());
+            focus.restoreState(table);
+            assertTrue(page.tableShown());
+            assertEquals(ExplorePictures.Level.ITEM, page.pictures().level());
+            return null;
+        });
+    }
+
+    private static void assertFilter(ExplorePictures pictures) {
+        ExplorePictures.State state = pictures.state();
+        ExplorePictures.Level root = state.level() == ExplorePictures.Level.ITEM ? state.itemFrom() : state.level();
+        if (root == ExplorePictures.Level.RUNS) assertEquals(state.dungeon(), pictures.runs().feed().query().map());
+        if (root == ExplorePictures.Level.COLLECTION) assertEquals(state.dungeon(), pictures.collection().dungeonFilter());
     }
 }
