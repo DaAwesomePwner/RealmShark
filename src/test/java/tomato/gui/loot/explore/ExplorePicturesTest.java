@@ -330,6 +330,34 @@ public class ExplorePicturesTest {
         }
     }
 
+    /** Back to an all-runs snapshot taken before the strip picked a run: the loaded strip opens its newest run again, never "Choose a run". */
+    @Test public void restoringAnEmptyAllRunsSnapshotReopensTheNewestRunWhenTheQueryHasNotChanged() throws Exception {
+        java.nio.file.Path root = temp.newFolder("history").toPath();
+        RunFixtures.write(root);
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunsLevelTest.FakeLoader loader = new RunsLevelTest.FakeLoader();
+            loader.runs.put(RunFixtures.B4, RunsLevelTest.haul(RunFixtures.B4, "Synthetic B4"));
+            ExplorePictures pictures = pictures(loader, () -> store);
+            try {
+                ExplorePictures.State saved = edt(() -> {
+                    ExplorePictures.State now = pictures.state();
+                    return new ExplorePictures.State(ExplorePictures.Level.RUNS, null, false, now.itemId(), now.itemFrom(), null);
+                });
+                edt(() -> { pictures.runs().feed().refresh(); return null; });
+                await("the newest run's haul", () -> RunFixtures.B4.equals(pictures.runs().shownRun()));
+                edt(() -> { pictures.showCollection(); pictures.restore(saved); return null; });
+                await("the newest run's haul after Back", () -> RunFixtures.B4.equals(pictures.runs().shownRun())
+                    && pictures.runs().detailShown() == pictures.runs().haul());
+                edt(() -> {
+                    assertEquals(ExplorePictures.Level.RUNS, pictures.level());
+                    assertNull(pictures.runs().feed().query().map());
+                    assertEquals(RunFixtures.B4, pictures.selectedRun());
+                    return null;
+                });
+            } finally { edt(() -> { pictures.close(); return null; }); }
+        }
+    }
+
     @Test public void restoringTheShownHaulKeepsItsContentAndDoesNotReadItAgain() throws Exception {
         RunsLevelTest.FakeLoader loader = new RunsLevelTest.FakeLoader();
         RunHauls.RunHaul haul = RunsLevelTest.haul(RunFixtures.A1, "Lost Halls");

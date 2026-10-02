@@ -205,7 +205,8 @@ public final class ExplorePictures extends JPanel implements AutoCloseable {
         if (!keep) {
             if (state.unlinked()) runs.openUnlinked();
             else if (state.run() != null) runs.openRun(state.run());
-            else if (filter != null && before.equals(runs.feed().query())) runs.feed().refresh();
+            // An unchanged query reads nothing, so the cleared strip would stay on "Choose a run": read it again to open its newest run.
+            else if (before.equals(runs.feed().query())) runs.feed().refresh();
         }
         dungeon = state.dungeon();
         itemFrom = state.itemFrom();
