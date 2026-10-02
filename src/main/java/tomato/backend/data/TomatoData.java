@@ -319,6 +319,7 @@ public class TomatoData {
      */
     public void setNewRealm(MapInfoPacket map) {
         tomato.realmshark.RealmEventAlerts.INSTANCE.resetCooldowns();
+        tomato.realmshark.WorldBossAlerts.INSTANCE.enterMap(map.name);
         // Order matters: the outgoing encounter is finished with its own entry-frozen reference
         // inside clear(); only afterwards is the incoming MAPINFO's exact visit captured.
         clear();
@@ -604,6 +605,8 @@ public class TomatoData {
             new Entity(this, idd, timePc)
         );
         int idType = object.objectType;
+        // A hit or tick can create the entity before its first UPDATE gives it a type.
+        boolean firstTyped = newObject || entity.objectType == 0;
         entity.entityUpdate(idType, object.status, timePc);
 
         if (newObject) {
@@ -611,6 +614,7 @@ public class TomatoData {
             SecurityAbilityUseCheck.decoy(entity);
             customSoundAlert(idType);
         }
+        if (firstTyped) tomato.realmshark.WorldBossAlerts.INSTANCE.objectAppeared(id, idType);
         if (petyard) {
             addPet(object);
         }
@@ -645,6 +649,15 @@ public class TomatoData {
         // Records the match decision (rule identity or no match) before any sound gate is applied.
         long decision = tomato.realmshark.AlertDecisions.entityAlert(getEntityIdPings(), idType);
         if (decision != 0) Sound.custom.play(decision);
+    }
+
+    /**
+     * The server moved the quest arrow. In a Realm this names a world boss as it spawns, often before it is in view;
+     * the type is resolved now when the object is known, otherwise when it first appears.
+     */
+    public void questTarget(QuestObjectIdPacket p) {
+        Entity target = entityList.get(p.objectId);
+        tomato.realmshark.WorldBossAlerts.INSTANCE.questTarget(p.objectId, target == null || target.objectType == 0 ? null : target.objectType);
     }
 
     /**

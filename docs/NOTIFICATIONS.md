@@ -39,6 +39,17 @@ Realm event rules listen to received text packets while the map is `Realm of the
 
 The presets use the names `cube god` and `legion general`, found in the local game assets. They are announcement-mention rules, not independently verified spawn detection. Their exact current spawn announcements were not available in those assets or captured during development. Narrow the phrase to the actual spawn wording from your Chat view if another Oryx announcement mentions that event. Localized clients, alternate senders, uncaptured traffic and different wording may not match. The last-match label reports only the rule name and time; this module does not save received chat text.
 
+## World boss alerts
+
+**World boss spawns** (Realm events tab, off by default) plays when, in `Realm of the Mad God`:
+
+- the server moves your quest arrow (`QUESTOBJID`) to a listed world boss. This is the closest available sign of a spawn, and it usually arrives before the boss is in view. If the target's type is not known yet, the alert waits for its first update. The arrow also points at a boss that was already up when you arrived, so entering a Realm can alert.
+- a listed world boss first appears in your updates, which covers bosses that never become your quest. This only means it came into view.
+
+Bosses are matched by asset name (ID name or display name), ignoring case and repeated spaces, against an editable list (one name per line, **Save names**, **Default list**). Each boss object alerts once per Realm visit. The same boss name pauses for 30 seconds, so multi-part events such as Pentaract towers or the statues play once. Map changes reset both.
+
+The quest arrow follows one target, and the server picks it for your character. A second event that spawns while you already point at a higher-priority boss may only be heard when it comes into view. The default names come from the known realm events and were not checked against current game assets. With **Include no match**, Recent decisions lists every quest target that is not on the list with its exact name, so a missing or renamed boss can be added.
+
 ## Validation
 
 Use the project-local JDK 17, Gradle 7.6.4 and offline cache:
